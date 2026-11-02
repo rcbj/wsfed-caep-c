@@ -4,7 +4,7 @@ Server-side WS-Federation 1.2 passive relying party for C and C++. One implement
 
 The library accepts SAML 2.0 bearer assertions, reads identity-provider federation metadata, writes relying-party metadata, verifies XML signatures, decrypts encrypted assertions, and remembers assertion ids so a bearer token cannot be replayed. A Shared Signals poll receiver for CAEP and RISC is included. The relying party does not start that receiver.
 
-Version 0.1.0. License: MIT. `develop` and `main` are the same commit when this tree is published.
+Version 0.1.1. License: MIT. `develop` and `main` are the same commit when this tree is published.
 
 ## Call surfaces
 
@@ -41,6 +41,8 @@ Sign-in uses `wa=wsignin1.0`, `wtrealm`, `wreply`, and `wctx`.
 `signals` omitted or `true` is on. The resolved configuration omits the key in that case (`signals_set` stays false) and the receiver runs when a transmitter is configured. `false` is stored, does not start a receiver, and does not require transmitter metadata. Any other value is refused with `signals must be true or false`.
 
 Signatures use exclusive canonicalization `http://www.w3.org/2001/10/xml-exc-c14n#`, RSA-SHA256 `http://www.w3.org/2001/04/xmldsig-more#rsa-sha256`, and digest sha256. Content encryption is AES-GCM and AES-CBC. Key transport is RSA-OAEP. Success status is `urn:oasis:names:tc:SAML:2.0:status:Success`. OpenSSL performs the cryptography. libxml2 parses XML and performs exclusive canonicalization. The JSON parser and the HTTP/1.1 client are in this repository.
+
+**Plain http (#14).** Federation metadata from a URL and every Shared Signals transmitter call (configuration, JWKS, stream and poll) use https. A plain `http://` URL is refused before any connection unless its host is loopback (`127.0.0.0/8`, `::1`, `localhost`); a URL with userinfo is never loopback, and a URL with whitespace or a control character is refused. The error keeps the fetch's code (`metadata`, `ssf`) and names the scheme and host only. There is no opt-out. The relying party's own realm and reply URL may stay http; they are never fetched.
 
 ## Tests
 
