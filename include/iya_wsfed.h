@@ -21,7 +21,6 @@ typedef struct iya_wsfed_login iya_wsfed_login;
 typedef struct iya_wsfed_login_request iya_wsfed_login_request;
 typedef struct iya_wsfed_keypair iya_wsfed_keypair;
 typedef struct iya_wsfed_receiver iya_wsfed_receiver;
-typedef struct iya_wsfed_app iya_wsfed_app;
 typedef struct iya_http_response iya_http_response;
 typedef struct iya_http_server iya_http_server;
 
@@ -163,10 +162,6 @@ int iya_wsfed_receiver_person_count(iya_wsfed_receiver *receiver, const char *pe
 const char *iya_wsfed_receiver_person_id(iya_wsfed_receiver *receiver, const char *person, int index);
 const char *iya_wsfed_receiver_stream_id(iya_wsfed_receiver *receiver);
 void iya_wsfed_receiver_free(iya_wsfed_receiver *receiver);
-
-iya_wsfed_app *iya_wsfed_app_new(iya_wsfed_party *party);
-int iya_wsfed_app_listen(iya_wsfed_app *app, int *port, iya_wsfed_error *err);
-void iya_wsfed_app_close(iya_wsfed_app *app);
 
 iya_http_server *iya_http_serve(iya_http_handler_fn handler, void *user, int *port);
 void iya_http_server_close(iya_http_server *server);

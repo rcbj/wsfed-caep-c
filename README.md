@@ -74,6 +74,8 @@ The demo image build copies `demo/` after compiling, and `.dockerignore` admits 
 
 ## Demo
 
+The demo web app is not part of the library: it is the `iya_wsfed_demo` target (`src/demo.cpp`), built for `wsfed-demo` and the tests and never installed.
+
 `PORT` defaults to 3000. `GET /healthz` returns `200` and the body `ok` before the identity provider is dialed. Loopback realm and reply URLs follow the running port. Other hosts stay as written. `PUBLIC_URL` or `--public-url` replaces the origin and keeps the path. The page links to `/login`, which redirects with `wa=wsignin1.0`, `wtrealm`, `wreply`, and `wctx`. The reply URL handles the POST and sign-out cleanup. `POST /logout` signs out. `GET /live-status` reports the sign-in and accepted Shared Signals events as JSON, without tokens. Demo JSON uses `file:` placeholders and omits `signals`. Do not commit `demo/generated`.
 
 ```sh
