@@ -6,6 +6,7 @@
 
 #include <openssl/err.h>
 #include <openssl/ssl.h>
+#include <openssl/x509v3.h>
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -60,6 +61,26 @@ Url parse_url(const std::string &url) {
   }
   if (u.port.empty()) u.port = u.scheme == "https" ? "443" : "80";
   return u;
+}
+
+bool is_ip_literal(const std::string &host) {
+  in_addr v4{};
+  in6_addr v6{};
+  return inet_pton(AF_INET, host.c_str(), &v4) == 1 || inet_pton(AF_INET6, host.c_str(), &v6) == 1;
+}
+
+std::vector<X509 *> ca_certs(const std::string &pem) {
+  std::vector<X509 *> out;
+  BIO *bio = BIO_new_mem_buf(pem.data(), static_cast<int>(pem.size()));
+  if (!bio) return out;
+  for (;;) {
+    X509 *cert = PEM_read_bio_X509(bio, nullptr, nullptr, nullptr);
+    if (!cert) break;
+    out.push_back(cert);
+  }
+  BIO_free(bio);
+  ERR_clear_error();
+  return out;
 }
 
 void set_timeouts(int fd) {
@@ -308,18 +329,22 @@ HttpResult http_send(const std::string &method_in, const std::string &url,
     }
     SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
     if (tls && !tls->ca.empty()) {
-      BIO *bio = BIO_new_mem_buf(tls->ca.data(), static_cast<int>(tls->ca.size()));
-      X509 *ca = PEM_read_bio_X509(bio, nullptr, nullptr, nullptr);
-      BIO_free(bio);
-      if (!ca) {
+      // idpCa is iya-sts's listener CA trust chain: leaf, TLS Issuing CA,
+      // Intermediate and Root. Every PEM block is a trust anchor. Reading only
+      // the first one (the leaf) leaves OpenSSL without the self-signed root,
+      // and it refuses the handshake ("self-signed certificate in certificate chain").
+      std::vector<X509 *> anchors = ca_certs(tls->ca);
+      if (anchors.empty()) {
         SSL_CTX_free(ctx);
         close(fd);
         fail(code, url + ": the CA certificate cannot be read");
       }
       X509_STORE *store = X509_STORE_new();
-      X509_STORE_add_cert(store, ca);
+      for (X509 *ca : anchors) {
+        X509_STORE_add_cert(store, ca);
+        X509_free(ca);
+      }
       SSL_CTX_set_cert_store(ctx, store);
-      X509_free(ca);
     } else {
       SSL_CTX_set_default_verify_paths(ctx);
     }
@@ -343,7 +368,16 @@ HttpResult http_send(const std::string &method_in, const std::string &url,
     }
     ssl = SSL_new(ctx);
     SSL_set_fd(ssl, fd);
-    SSL_set_tlsext_host_name(ssl, u.host.c_str());
+    // The certificate must name the host the URL names: a DNS name against a
+    // DNS SAN, an IP literal against an IP SAN. A chain to a trusted root is not
+    // enough on its own. RFC 6066 sends no server name for an IP literal.
+    if (is_ip_literal(u.host)) {
+      X509_VERIFY_PARAM_set1_ip_asc(SSL_get0_param(ssl), u.host.c_str());
+    } else {
+      SSL_set_hostflags(ssl, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+      SSL_set1_host(ssl, u.host.c_str());
+      SSL_set_tlsext_host_name(ssl, u.host.c_str());
+    }
     if (SSL_connect(ssl) != 1) {
       SSL_free(ssl);
       SSL_CTX_free(ctx);
