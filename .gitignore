@@ -1,0 +1,12 @@
+build/
+bin/
+dist/
+demo/generated/
+.idea/
+*.exe
+*.o
+*.a
+__pycache__/
+*.pyc
+venv/
+.venv/
