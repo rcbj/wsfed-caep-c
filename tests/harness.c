@@ -325,6 +325,7 @@ char *wresult_xml(const char *token, const char *trust, const char *applies, con
     owned = signed_assertion(NULL, NULL, 0);
     token = owned;
   }
+  /* XML namespace names, not URLs anything dials: http:// is part of each name, and https:// would be another namespace. */
   const char *ns = "http://schemas.xmlsoap.org/ws/2005/02/trust";
   int trust13 = trust && strcmp(trust, "1.3") == 0;
   if (trust13) ns = "http://docs.oasis-open.org/ws-sx/ws-trust/200512";
