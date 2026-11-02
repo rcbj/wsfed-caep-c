@@ -213,6 +213,9 @@ struct DemoApp::Impl {
   std::string secure;
   std::string gif;
   int bound_port = 0;
+  std::mutex live_mu;
+  std::string receiver_state = "not configured";
+  std::vector<std::pair<std::string, std::string>> events;
 
   explicit Impl(RelyingParty party_in) : party(std::move(party_in)), gif(gif_bytes()) {
     unsigned char raw[32];
@@ -226,6 +229,71 @@ struct DemoApp::Impl {
   void drop(const std::string &id) {
     std::lock_guard<std::mutex> lock(sessions_mu);
     sessions.erase(id);
+  }
+
+  void set_state(const std::string &state) {
+    std::lock_guard<std::mutex> lock(live_mu);
+    receiver_state = state;
+  }
+
+  // Record an accepted Shared Signals event for GET /live-status (type and jti only).
+  void remember(const SignalEvent &event) {
+    {
+      std::lock_guard<std::mutex> lock(live_mu);
+      events.emplace_back(event.type, event.jti);
+    }
+    // iya-sts main sets the WS-Federation assertion's SessionIndex to the
+    // assertion id. The CAEP session-revoked subject names the sign-on session
+    // instead, so the index finds nobody and the end callback is not asked to
+    // drop this login. This demo has that one session: end it here and untrack it.
+    if (event.type != "https://schemas.openid.net/secevent/caep/event-type/session-revoked" || !event.sessions.empty()) return;
+    std::vector<std::string> ids;
+    {
+      std::lock_guard<std::mutex> lock(sessions_mu);
+      for (const auto &kv : sessions) ids.push_back(kv.first);
+      sessions.clear();
+    }
+    if (receiver) {
+      for (const auto &id : ids) receiver->Untrack(id);
+    }
+  }
+
+  // GET /live-status: signedIn, subject, receiver and the accepted events. Never tokens or assertions.
+  std::string live_status(const std::string &sid) {
+    std::string subject;
+    bool signed_in = false;
+    {
+      std::lock_guard<std::mutex> lock(sessions_mu);
+      auto found = sid.empty() ? sessions.end() : sessions.find(sid);
+      if (found != sessions.end()) {
+        signed_in = true;
+        subject = found->second.name_id;
+      }
+    }
+    Json out;
+    out.type = Json::Object;
+    Json flag;
+    flag.type = Json::Bool;
+    flag.b = signed_in;
+    out.obj.emplace_back("signedIn", flag);
+    Json nothing;
+    nothing.type = Json::Null;
+    out.obj.emplace_back("subject", signed_in ? obj_string(subject) : nothing);
+    Json list;
+    list.type = Json::Array;
+    {
+      std::lock_guard<std::mutex> lock(live_mu);
+      out.obj.emplace_back("receiver", obj_string(receiver_state));
+      for (const auto &item : events) {
+        Json row;
+        row.type = Json::Object;
+        row.obj.emplace_back("type", obj_string(item.first));
+        row.obj.emplace_back("jti", obj_string(item.second));
+        list.arr.push_back(row);
+      }
+    }
+    out.obj.emplace_back("events", list);
+    return json_dump(out);
   }
 
   std::string pending(const std::string &value, int age) const {
@@ -259,8 +327,16 @@ void DemoApp::StartSignals(const std::string &transmitter, int poll_interval_ms,
         for (const auto &id : ids) self->drop(id);
       },
       options);
-  receiver->Start();
+  receiver->On("*", [self](const SignalEvent &event) { self->remember(event); });
   impl_->receiver = std::move(receiver);
+  try {
+    impl_->receiver->Start();
+  } catch (const std::exception &ex) {
+    impl_->receiver.reset();
+    impl_->set_state(std::string("not running: ") + ex.what());
+    throw;
+  }
+  impl_->set_state("polling stream " + impl_->receiver->StreamId() + " at " + transmitter);
 }
 
 DemoApp::Handled DemoApp::Handle(const std::string &method_in, const std::string &target,
@@ -274,6 +350,12 @@ DemoApp::Handled DemoApp::Handle(const std::string &method_in, const std::string
   if (path == "/healthz" && method == "GET") {
     out.headers.push_back({"content-type", "text/plain"});
     out.body = "ok";
+    return out;
+  }
+  if (path == "/live-status" && method == "GET") {
+    out.headers.push_back({"content-type", "application/json"});
+    out.headers.push_back({"cache-control", "no-store"});
+    out.body = impl_->live_status(sid);
     return out;
   }
   if (path == "/login" && method == "GET") {

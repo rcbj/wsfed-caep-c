@@ -22,11 +22,21 @@ docker build --target test .
 
 The `test` stage builds with CMake and runs `ctest` in `debian:bookworm`. GitHub Actions uses that command. The demo image does not run the suite. OpenSSL and libxml2 come from Debian packages. This tree does not wrap another WS-Federation relying party.
 
-C tests cover configuration, metadata, sign-in, signed and encrypted assertions, replay, the self-signed certificate, the SSF poll receiver, the setup script's signals behavior, and the demo handler. `tests/cpp_smoke.cpp` calls the C++ classes and links the same library. No live iya-sts.
+C tests cover configuration, metadata, sign-in, signed and encrypted assertions, replay, the self-signed certificate, the SSF poll receiver, the setup script's signals behavior, and the demo handler. `tests/cpp_smoke.cpp` calls the C++ classes and links the same library. `tests/trust.c` serves HTTPS from a four-certificate chain shaped like iya-sts's and checks that the whole `idpCa` chain file is the trust store (the leaf alone is refused), that the host name is verified (right chain, wrong name refused; DNS name and `127.0.0.1` via an IP SAN accepted), and that `scripts/trust_chain.py` writes the whole chain from `GET /tls/server-certificate` and from the handshake.
+
+## Live test and nightly
+
+`python3 scripts/live_iya_sts.py` (host stdlib python3 and Docker; never CMake on the host) starts a fresh iya-sts `main` in memory mode as container `iya-sts-live-wsfed-caep-c` on `LIVE_STS_PORT` (default 18529), builds the demo image from a scratch copy of the checkout, generates the key pair with `wsfed-caep` inside it, runs `scripts/configure_iya_sts.py` on the host (which writes the trust chain), rebuilds the image (which bakes the chain in), checks the image's chain equals the saved one, runs `wsfed-caep-c-live-demo` with `--network host` on `LIVE_DEMO_PORT` (default 18629) mounting only `rp.key`, `rp.crt` and `idp-metadata.xml`, signs in through `/authn-api`, emits `credential-change` then `session-revoked`, and checks `GET /live-status`. `IYA_STS_URL` and `IYA_STS_IMAGE` select an existing iya-sts or image. It never binds 3000, 8081 or 18481-18495. Always against a fresh iya-sts: a second run against an already-registered relying party is not supported. `.github/workflows/nightly.yml` runs the unit image and the live script at 07:54 UTC (`54 7 * * *`).
+
+`/live-status` is `{signedIn, subject, receiver, events: [{type, jti}]}`, never tokens. iya-sts `main` puts the assertion id in `SessionIndex`, so `session-revoked` matches no tracked session; the demo (`Impl::remember` in `src/demo.cpp`, not the library) then ends its one local session and untracks it.
+
+## idpCa, the iya-sts trust chain
+
+`idpCa` (demo default `file:generated/idp-ca.pem`) is iya-sts's listener CA trust chain. `scripts/configure_iya_sts.py` writes the whole chain on every run via `scripts/trust_chain.py` (`GET /tls/server-certificate`, falling back to the handshake) and prints the path, anchor subject and SHA-256. `src/http.cpp` loads every PEM block as an anchor and verifies the host name (`SSL_set1_host`, or `X509_VERIFY_PARAM_set1_ip_asc` for an IP literal, which gets no SNI). The demo stage compiles from `CMakeLists.txt`, `VERSION`, `include`, `src`, `tests`, then `COPY demo /app/demo`; `.dockerignore` excludes `demo/generated/*` except `idp-ca.pem`, so the image carries the chain and no keys, and a build without it still succeeds. Rebuild the demo image after re-running the install script against a different iya-sts.
 
 ## Layout
 
-`include/` and `src/` are the library. `tests/` is the suite. `demo/` is the HTTP handler. `wsfed-demo` and `wsfed-caep` are the installed commands. `scripts/configure_iya_sts.py` registers the demo with iya-sts and shells out to `wsfed-caep` on `PATH`; the container `PORT` wins over the shell `PORT`. `Dockerfile` and comment-free `docker-compose.yml` use image `wsfed-caep-c-demo`, `network_mode: host`, `ENV PORT=3000`, and a health check of `http://127.0.0.1:${PORT}/healthz`.
+`include/` and `src/` are the library. `tests/` is the suite. `demo/` is the HTTP handler. `wsfed-demo` and `wsfed-caep` are the installed commands. `scripts/configure_iya_sts.py` registers the demo with iya-sts, writes the trust chain, and shells out to `wsfed-caep` on `PATH`; the container `PORT` wins over the shell `PORT`. `Dockerfile` and comment-free `docker-compose.yml` use image `wsfed-caep-c-demo`, `network_mode: host`, `ENV PORT=3000`, and a health check of `http://127.0.0.1:${PORT}/healthz`.
 
 ## Demo
 

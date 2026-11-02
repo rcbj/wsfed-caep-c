@@ -36,8 +36,8 @@ target_link_libraries(wsfed-caep PRIVATE wsfed)
 add_executable(wsfed-demo src/demo_main.cpp)
 target_link_libraries(wsfed-demo PRIVATE wsfed)
 
-add_executable(wsfed_tests tests/harness.c tests/suite.c tests/cases.c)
-target_link_libraries(wsfed_tests PRIVATE wsfed OpenSSL::Crypto Threads::Threads)
+add_executable(wsfed_tests tests/harness.c tests/suite.c tests/cases.c tests/trust.c)
+target_link_libraries(wsfed_tests PRIVATE wsfed OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
 target_include_directories(wsfed_tests PRIVATE include)
 
 add_executable(wsfed_cpp_smoke tests/cpp_smoke.cpp)
@@ -91,6 +91,10 @@ set(WSFED_CASES
   TestTwoCertificatesOfOneNameHaveDifferentKeyIdentifiers
   TestGenerateKeysNamesTheCertificateAfterTheRealm
   TestSignInCleanupAndLogout
+  TestLiveStatusReportsTheSignInWithoutTokens
+  TestIdpCaChainIsTheTrustStore
+  TestHostNameIsChecked
+  TestConfigureWritesTheWholeChain
 )
 foreach(case ${WSFED_CASES})
   add_test(NAME ${case} COMMAND wsfed_tests ${case})

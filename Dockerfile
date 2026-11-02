@@ -13,7 +13,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake pkg-config libssl-dev libxml2-dev wget ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
-COPY . .
+# Only what the build reads, so a new trust chain in demo/ does not rebuild the binaries.
+COPY CMakeLists.txt VERSION ./
+COPY include include
+COPY src src
+COPY tests tests
 RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
  && cmake --build build --target wsfed-caep wsfed-demo \
  && cmake --install build \
@@ -22,6 +26,12 @@ RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
  && apt-get autoremove -y \
  && rm -rf /var/lib/apt/lists/* /src
 WORKDIR /app
+# demo/ comes after the build. .dockerignore admits one file of demo/generated:
+# idp-ca.pem, the iya-sts listener CA trust chain scripts/configure_iya_sts.py
+# writes where idpCa names it. When it exists, this COPY puts it at
+# /app/demo/generated/idp-ca.pem; when it does not (a fresh clone, CI), the
+# directory carries nothing from demo/generated and the build still succeeds.
+# Keys and metadata never enter the image.
 COPY demo /app/demo
 COPY scripts /app/scripts
 ENV PORT=3000

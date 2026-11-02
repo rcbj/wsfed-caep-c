@@ -1093,3 +1093,61 @@ void TestSignInCleanupAndLogout(void) {
   free(clean_url);
   free(logout_url);
 }
+
+void TestLiveStatusReportsTheSignInWithoutTokens(void) {
+  char *json = cfg_json(default_meta_path(), 1, NULL);
+  iya_wsfed_party *party = must_party(json);
+  free(json);
+  iya_wsfed_app *app = iya_wsfed_app_new(party);
+  iya_wsfed_party_free(party);
+  if (!app) die("app");
+  int port = 0;
+  iya_wsfed_error err;
+  memset(&err, 0, sizeof err);
+  if (iya_wsfed_app_listen(app, &port, &err) != 0) die(err.message);
+  char *base = aprintf("http://127.0.0.1:%d", port);
+  char *status_url = aprintf("%s/live-status", base);
+  iya_http_response *before = http_must("GET", status_url, "", "", "");
+  if (iya_http_status(before) != 200 || !contains(iya_http_header_at(before, "content-type", 0), "application/json")) die("status");
+  if (strcmp(iya_http_body(before), "{\"signedIn\":false,\"subject\":null,\"receiver\":\"not configured\",\"events\":[]}") != 0)
+    die(iya_http_body(before));
+  iya_http_response_free(before);
+  char *login_url = aprintf("%s/login", base);
+  iya_http_response *login = http_must("GET", login_url, "", "", "");
+  const char *location = iya_http_header_at(login, "location", 0);
+  char *wctx = location ? query_get(location, "wctx") : NULL;
+  if (!wctx) die("wctx");
+  char pending[512];
+  cookie_of(login, "wsfed_pending", pending, sizeof pending);
+  char cookie[640];
+  snprintf(cookie, sizeof cookie, "wsfed_pending=%s", pending);
+  char *made = signed_assertion(NULL, NULL, 0);
+  char *result = wresult_xml(made, NULL, NULL, NULL, 0, 0);
+  char *form = form_body(result, wctx);
+  char *reply_url = aprintf("%s/wsfed", base);
+  iya_http_response *reply = http_must("POST", reply_url, "application/x-www-form-urlencoded", form, cookie);
+  if (iya_http_status(reply) != 303) dief("reply %d %s", iya_http_status(reply), iya_http_body(reply));
+  char sid[512];
+  cookie_of(reply, "sid", sid, sizeof sid);
+  char sid_cookie[640];
+  snprintf(sid_cookie, sizeof sid_cookie, "sid=%s", sid);
+  iya_http_response *after = http_must("GET", status_url, "", "", sid_cookie);
+  const char *body = iya_http_body(after);
+  if (!contains(body, "\"signedIn\":true") || !contains(body, "\"subject\":\"alice-1234\"")) die(body);
+  if (contains(body, "Assertion") || contains(body, "wresult") || contains(body, "token")) die(body);
+  iya_http_response_free(after);
+  iya_http_response *other = http_must("GET", status_url, "", "", "");
+  if (!contains(iya_http_body(other), "\"signedIn\":false")) die(iya_http_body(other));
+  iya_http_response_free(other);
+  iya_http_response_free(reply);
+  iya_http_response_free(login);
+  iya_wsfed_app_close(app);
+  free(wctx);
+  free(made);
+  free(result);
+  free(form);
+  free(base);
+  free(status_url);
+  free(login_url);
+  free(reply_url);
+}

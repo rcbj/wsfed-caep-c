@@ -893,6 +893,10 @@ void TestSignsItselfAndNamesItsKey(void);
 void TestTwoCertificatesOfOneNameHaveDifferentKeyIdentifiers(void);
 void TestGenerateKeysNamesTheCertificateAfterTheRealm(void);
 void TestSignInCleanupAndLogout(void);
+void TestLiveStatusReportsTheSignInWithoutTokens(void);
+void TestIdpCaChainIsTheTrustStore(void);
+void TestHostNameIsChecked(void);
+void TestConfigureWritesTheWholeChain(void);
 
 int main(int argc, char **argv) {
   if (argc < 2) return 2;
@@ -945,6 +949,10 @@ int main(int argc, char **argv) {
   RUN(TestTwoCertificatesOfOneNameHaveDifferentKeyIdentifiers)
   RUN(TestGenerateKeysNamesTheCertificateAfterTheRealm)
   RUN(TestSignInCleanupAndLogout)
+  RUN(TestLiveStatusReportsTheSignInWithoutTokens)
+  RUN(TestIdpCaChainIsTheTrustStore)
+  RUN(TestHostNameIsChecked)
+  RUN(TestConfigureWritesTheWholeChain)
 #undef RUN
   fprintf(stderr, "unknown test %s\n", name);
   return 2;
