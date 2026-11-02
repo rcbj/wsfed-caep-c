@@ -4,7 +4,7 @@ Server-side WS-Federation 1.2 passive relying party for C and C++. One implement
 
 The library accepts SAML 2.0 bearer assertions, reads identity-provider federation metadata, writes relying-party metadata, verifies XML signatures, decrypts encrypted assertions, and remembers assertion ids so a bearer token cannot be replayed. A Shared Signals poll receiver for CAEP and RISC is included. The relying party does not start that receiver.
 
-Version 0.1.0. License: MIT. Publishing is not a package registry. `develop` and `main` are the same commit when this tree is published.
+Version 0.1.0. License: MIT. `develop` and `main` are the same commit when this tree is published.
 
 ## Call surfaces
 
@@ -93,3 +93,20 @@ The generated certificate's common name defaults to `wsfed-caep-nodejs relying p
 `python scripts/configure_iya_sts.py` registers the demo with iya-sts and writes its listener CA trust chain where `idpCa` names it (see above); rebuild the demo image afterwards. The container `PORT` wins over the shell `PORT`. The script calls `wsfed-caep` on `PATH` for key generation and does not import a Python protocol package.
 
 `Dockerfile` and comment-free `docker-compose.yml` use image `wsfed-caep-c-demo`, `network_mode: host`, `ENV PORT=3000`, and a health check of `http://127.0.0.1:${PORT}/healthz`. Compose does not publish host port 3000.
+
+## Using it from CMake
+
+The build installs the library, its public headers and a CMake package. It builds static by
+default and shared with `-DBUILD_SHARED_LIBS=ON`; `-DIYA_WSFED_BUILD_TESTS=OFF -DIYA_WSFED_BUILD_PROGRAMS=OFF`
+builds the library alone (both are on only when this is the top-level project). Then:
+
+```cmake
+find_package(iya_wsfed REQUIRED)
+target_link_libraries(app PRIVATE iya::wsfed)
+```
+
+The package finds the library's own dependencies, and the target carries the include
+directory and C++17. The Docker test stage checks this: it installs the static and the shared
+library and builds the C++ smoke test against each through `find_package` (`tests/package/`).
+
+A pull request merged into `main` releases the library after the test workflow succeeds on that commit: `release.yml` tags `v<VERSION>` and makes a GitHub Release, whose source archive is what a package recipe (such as a ConanCenter one) builds from. A direct push does not release. A tag that already exists stays; the next release is a new version in `VERSION`, which the CMake project, the package and the tag all read.
