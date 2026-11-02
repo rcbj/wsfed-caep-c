@@ -42,6 +42,8 @@ Sign-in uses `wa=wsignin1.0`, `wtrealm`, `wreply`, and `wctx`.
 
 Signatures use exclusive canonicalization `http://www.w3.org/2001/10/xml-exc-c14n#`, RSA-SHA256 `http://www.w3.org/2001/04/xmldsig-more#rsa-sha256`, and digest sha256. Content encryption is AES-GCM and AES-CBC. Key transport is RSA-OAEP. Success status is `urn:oasis:names:tc:SAML:2.0:status:Success`. OpenSSL performs the cryptography. libxml2 parses XML and performs exclusive canonicalization. The JSON parser and the HTTP/1.1 client are in this repository.
 
+**Plain http (#14).** Federation metadata from a URL and every Shared Signals transmitter call (configuration, JWKS, stream and poll) use https. A plain `http://` URL is refused before any connection unless its host is loopback (`127.0.0.0/8`, `::1`, `localhost`); a URL with userinfo is never loopback, and a URL with whitespace or a control character is refused. The error keeps the fetch's code (`metadata`, `ssf`) and names the scheme and host only. There is no opt-out. The relying party's own realm and reply URL may stay http; they are never fetched.
+
 ## Tests
 
 ```bash

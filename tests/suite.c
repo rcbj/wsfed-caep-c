@@ -140,6 +140,8 @@ static void TestSignalsMustBeTrueOrFalse(void) {
   if (strcmp(err.message, "signals must be true or false") != 0) die(err.message);
 }
 
+void PlainHttpMetadataChecks(void);
+
 static void TestReadsTheSecurityTokenServiceRole(void) {
   char *json = cfg_json(NULL, 1, NULL);
   iya_wsfed_party *party = must_party(json);
@@ -149,6 +151,7 @@ static void TestReadsTheSecurityTokenServiceRole(void) {
   if (iya_wsfed_party_signing_certs(party) != 1) die("certs");
   iya_wsfed_party_free(party);
   free(json);
+  PlainHttpMetadataChecks(); /* plain http off loopback (#14), in cases.c */
 }
 
 static void TestXsiTypeAndIdpRoleFallback(void) {

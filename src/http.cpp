@@ -63,6 +63,41 @@ Url parse_url(const std::string &url) {
   return u;
 }
 
+// A loopback host: 127.0.0.0/8, ::1 or the name localhost. Plain http is
+// allowed only to one of these, where the bytes never leave the machine.
+bool is_loopback_host(const std::string &host) {
+  std::string lower;
+  for (char c : host) lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  if (lower == "localhost") return true;
+  in_addr v4{};
+  if (inet_pton(AF_INET, host.c_str(), &v4) == 1) return (ntohl(v4.s_addr) >> 24) == 127;
+  in6_addr v6{};
+  if (inet_pton(AF_INET6, host.c_str(), &v6) == 1) return IN6_IS_ADDR_LOOPBACK(&v6);
+  return false;
+}
+
+// Whitespace or a control character anywhere in the URL: another parser may
+// read a different host from the same string, so such a URL is refused.
+bool has_unsafe_char(const std::string &url) {
+  for (unsigned char c : url) {
+    if (c <= 0x20 || c == 0x7f) return true;
+  }
+  return false;
+}
+
+// Fails unless a plain http URL names a loopback host. Userinfo is never
+// loopback, so "http://localhost:80@host/" cannot pass as localhost. The
+// message names the scheme and host[:port] only: never userinfo, path or query.
+void refuse_plain_http_off_loopback(const std::string &url, const Url &u, const std::string &code) {
+  std::string authority = url.substr(7);
+  authority = authority.substr(0, authority.find_first_of("/?#"));
+  auto at = authority.rfind('@');
+  if (at == std::string::npos && is_loopback_host(u.host)) return;
+  std::string shown = at == std::string::npos ? authority : authority.substr(at + 1);
+  fail(code, "http://" + shown +
+                 " is refused: plain http is allowed only to a loopback host (127.0.0.0/8, ::1, localhost); use https");
+}
+
 bool is_ip_literal(const std::string &host) {
   in_addr v4{};
   in6_addr v6{};
@@ -313,10 +348,18 @@ HttpResult http_send(const std::string &method_in, const std::string &url,
                      const std::vector<std::pair<std::string, std::string>> &headers, const std::string *body,
                      const TlsMaterial *tls, const std::string &code) {
   std::string method = method_in.empty() ? "GET" : method_in;
+  if (has_unsafe_char(url)) fail(code, "the URL is refused: it contains whitespace or a control character");
   if (url.compare(0, 8, "https://") != 0 && url.compare(0, 7, "http://") != 0) {
     fail(code, url + " is not an http(s) URL");
   }
   Url u = parse_url(url);
+  // Every fetch this library makes goes through here: the identity provider's
+  // federation metadata (its signing keys) and the Shared Signals transmitter
+  // (configuration, JWKS, stream and poll: SETs and the bearer token). None of
+  // them may travel in the clear off this machine, so plain http is refused
+  // before any lookup or connection unless the host is loopback. This client
+  // follows no redirect.
+  if (u.scheme == "http") refuse_plain_http_off_loopback(url, u, code);
   if (u.host.empty()) fail(code, url + ": name lookup failed");
   int fd = connect_host(u.host, u.port, url, code);
   SSL_CTX *ctx = nullptr;

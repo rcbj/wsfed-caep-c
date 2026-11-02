@@ -14,6 +14,8 @@ A C function logs once with `fprintf(stderr, ...)` and returns an error. The C++
 
 Omitted or `true` means on. The resolved configuration leaves `signals_set` false in that case, which is the omitted key, and the receiver runs when a transmitter is configured. `false` sets `signals_set` and stores `signals` false. It does not start the receiver and does not require transmitter metadata. The relying party never starts the receiver itself; `SignalsReceiver` is separate. `Stop` waits until the background poll loop has finished. Sign-in does not change when signals are off, because WS-Federation does not send OAuth scopes. A non-boolean raises a config error: `signals must be true or false`. The shipped demo omits the key.
 
+**Plain http (#14).** `http_send()` in `src/http.cpp` is the one place every fetch goes through; it refuses a URL with whitespace or a control character, and plain `http://` to a non-loopback host (`127.0.0.0/8`, `::1`, `localhost`; userinfo never counts), before connecting, naming only `http://host[:port]`. It follows no redirect. The tests are `PlainHttpMetadataChecks()` and `PlainHttpTransmitterChecks()` in `tests/cases.c`, run from the registered `TestReadsTheSecurityTokenServiceRole` and `TestRefusesATransmitterWithoutPollDelivery`.
+
 ## Tests
 
 ```bash
