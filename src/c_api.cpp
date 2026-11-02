@@ -3,6 +3,7 @@
 
 #include "iya/wsfed.hpp"
 #include "iya_wsfed.h"
+#include "c_api_internal.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -21,12 +22,6 @@ int report(iya_wsfed_error *err, const iya::wsfed::failure &ex) {
     std::snprintf(err->message, sizeof err->message, "%s", ex.what());
   }
   return 1;
-}
-
-int report_std(iya_wsfed_error *err, const std::exception &ex) {
-  const auto *fail = dynamic_cast<const iya::wsfed::failure *>(&ex);
-  if (fail) return report(err, *fail);
-  return report(err, iya::wsfed::failure("error", ex.what()));
 }
 
 char *dup_str(const std::string &value) {
@@ -51,23 +46,6 @@ bool ieq(const std::string &a, const char *b) {
   return true;
 }
 
-struct ResolvedBox {
-  iya::wsfed::Resolved resolved;
-};
-
-struct PartyBox {
-  iya::wsfed::RelyingParty party;
-  ResolvedBox resolved;
-  std::string entity;
-  std::string passive;
-  std::vector<std::string> tokens;
-  explicit PartyBox(iya::wsfed::RelyingParty party_in) : party(std::move(party_in)) {
-    resolved.resolved = party.config();
-    entity = party.IdpEntityId();
-    passive = party.PassiveEndpoint();
-    tokens = party.TokenTypesOffered();
-  }
-};
 
 struct LoginRequestBox {
   iya::wsfed::RelyingParty::LoginRequest request;
@@ -88,11 +66,6 @@ struct ReceiverBox {
   std::string stream_id;
   ReceiverBox(std::string transmitter, iya::wsfed::SignalsReceiver::EndFn on_end, iya::wsfed::SignalsReceiver::Options options)
       : receiver(std::move(transmitter), std::move(on_end), std::move(options)) {}
-};
-
-struct AppBox {
-  iya::wsfed::DemoApp app;
-  explicit AppBox(iya::wsfed::RelyingParty party) : app(std::move(party)) {}
 };
 
 struct ServerBox {
@@ -130,6 +103,20 @@ void fill_event(const iya::wsfed::SignalEvent &event, iya_wsfed_event *out, std:
 }
 
 }  // namespace
+
+namespace iya::wsfed::capi {
+
+int report_std(iya_wsfed_error *err, const std::exception &ex) {
+  const auto *fail = dynamic_cast<const iya::wsfed::failure *>(&ex);
+  if (fail) return report(err, *fail);
+  return report(err, iya::wsfed::failure("error", ex.what()));
+}
+
+}  // namespace iya::wsfed::capi
+
+using iya::wsfed::capi::PartyBox;
+using iya::wsfed::capi::ResolvedBox;
+using iya::wsfed::capi::report_std;
 
 extern "C" {
 
@@ -554,37 +541,6 @@ const char *iya_wsfed_receiver_stream_id(iya_wsfed_receiver *receiver) {
 }
 
 void iya_wsfed_receiver_free(iya_wsfed_receiver *receiver) { delete reinterpret_cast<ReceiverBox *>(receiver); }
-
-iya_wsfed_app *iya_wsfed_app_new(iya_wsfed_party *party) {
-  if (!party) return nullptr;
-  auto *from = reinterpret_cast<PartyBox *>(party);
-  try {
-    return reinterpret_cast<iya_wsfed_app *>(new AppBox(std::move(from->party)));
-  } catch (const std::exception &ex) {
-    report_std(nullptr, ex);
-    return nullptr;
-  }
-}
-
-int iya_wsfed_app_listen(iya_wsfed_app *app, int *port, iya_wsfed_error *err) {
-  try {
-    auto *box = reinterpret_cast<AppBox *>(app);
-    int requested = port ? *port : 0;
-    int bound = requested > 0 ? requested : 0;
-    if (requested > 0) box->app.Listen(requested);
-    else bound = box->app.ListenEphemeral();
-    if (port) *port = bound;
-    return 0;
-  } catch (const std::exception &ex) {
-    return report_std(err, ex);
-  }
-}
-
-void iya_wsfed_app_close(iya_wsfed_app *app) {
-  if (!app) return;
-  reinterpret_cast<AppBox *>(app)->app.Close();
-  delete reinterpret_cast<AppBox *>(app);
-}
 
 iya_http_server *iya_http_serve(iya_http_handler_fn handler, void *user, int *port) {
   try {

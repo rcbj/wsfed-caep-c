@@ -38,7 +38,7 @@ The install script never prints a generated test-user password: it writes it to 
 
 ## Layout
 
-`include/` and `src/` are the library. `tests/` is the suite. `demo/` is the HTTP handler. `wsfed-demo` and `wsfed-caep` are the installed commands. `scripts/configure_iya_sts.py` registers the demo with iya-sts, writes the trust chain, and shells out to `wsfed-caep` on `PATH`; the container `PORT` wins over the shell `PORT`. `Dockerfile` and comment-free `docker-compose.yml` use image `wsfed-caep-c-demo`, `network_mode: host`, `ENV PORT=3000`, and a health check of `http://127.0.0.1:${PORT}/healthz`.
+`include/` and `src/` are the library, except the demo web app: `src/demo.cpp`, `src/demo_c_api.cpp` and the private headers `src/demo.hpp` (`DemoApp`, `DemoMain`) and `src/iya_wsfed_demo.h` (`iya_wsfed_app_*`) are the `iya_wsfed_demo` target, built only with the programs or the tests and never installed, so neither the library nor its public headers carry the demo. `src/c_api_internal.hpp` holds the C wrapper's `PartyBox` and `report_std`, which both C files use. `tests/` is the suite. `demo/` holds the demo's configuration and pages. `wsfed-demo` and `wsfed-caep` are the installed commands. `scripts/configure_iya_sts.py` registers the demo with iya-sts, writes the trust chain, and shells out to `wsfed-caep` on `PATH`; the container `PORT` wins over the shell `PORT`. `Dockerfile` and comment-free `docker-compose.yml` use image `wsfed-caep-c-demo`, `network_mode: host`, `ENV PORT=3000`, and a health check of `http://127.0.0.1:${PORT}/healthz`.
 
 ## Demo
 

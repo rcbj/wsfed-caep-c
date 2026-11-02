@@ -4,6 +4,7 @@
 #define _GNU_SOURCE
 
 #include "harness.h"
+#include "iya_wsfed_demo.h"
 
 #include <openssl/bn.h>
 #include <openssl/evp.h>

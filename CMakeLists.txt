@@ -41,7 +41,6 @@ add_library(iya_wsfed
   src/party.cpp
   src/ssf.cpp
   src/cli.cpp
-  src/demo.cpp
   src/c_api.cpp)
 add_library(iya::wsfed ALIAS iya_wsfed)
 target_include_directories(iya_wsfed
@@ -79,16 +78,20 @@ install(FILES
   DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/iya_wsfed)
 
 if(IYA_WSFED_BUILD_PROGRAMS OR IYA_WSFED_BUILD_TESTS)
+# The demo web app, for wsfed-demo and the tests: never installed, never in the library.
+add_library(iya_wsfed_demo STATIC src/demo.cpp src/demo_c_api.cpp)
+target_include_directories(iya_wsfed_demo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(iya_wsfed_demo PUBLIC iya_wsfed)
 add_executable(wsfed-caep src/cli_main.cpp)
 target_link_libraries(wsfed-caep PRIVATE iya_wsfed)
 add_executable(wsfed-demo src/demo_main.cpp)
-target_link_libraries(wsfed-demo PRIVATE iya_wsfed)
+target_link_libraries(wsfed-demo PRIVATE iya_wsfed_demo)
 install(TARGETS wsfed-caep wsfed-demo RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 
 if(IYA_WSFED_BUILD_TESTS)
 add_executable(wsfed_tests tests/harness.c tests/suite.c tests/cases.c tests/trust.c)
-target_link_libraries(wsfed_tests PRIVATE iya_wsfed OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
+target_link_libraries(wsfed_tests PRIVATE iya_wsfed_demo iya_wsfed OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
 target_include_directories(wsfed_tests PRIVATE include)
 add_executable(wsfed_cpp_smoke tests/cpp_smoke.cpp)
 target_link_libraries(wsfed_cpp_smoke PRIVATE iya_wsfed)

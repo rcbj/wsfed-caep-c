@@ -193,35 +193,8 @@ class SignalsReceiver {
   std::unique_ptr<Impl> impl_;
 };
 
-class DemoApp {
- public:
-  explicit DemoApp(RelyingParty party);
-  ~DemoApp();
-  DemoApp(DemoApp &&) noexcept;
-  DemoApp &operator=(DemoApp &&) noexcept;
-  DemoApp(const DemoApp &) = delete;
-  DemoApp &operator=(const DemoApp &) = delete;
-
-  struct Handled {
-    int status = 200;
-    std::vector<std::pair<std::string, std::string>> headers;
-    std::string body;
-  };
-  Handled Handle(const std::string &method, const std::string &target,
-                 const std::vector<std::pair<std::string, std::string>> &headers, const std::string &body);
-  void StartSignals(const std::string &transmitter, int poll_interval_ms, const std::string &ca_pem,
-                    const std::string &cert_pem, const std::string &key_pem);
-  void Listen(int port);
-  int ListenEphemeral();
-  void Close();
-
- private:
-  struct Impl;
-  std::unique_ptr<Impl> impl_;
-};
 
 int CliMain(int argc, char **argv);
-int DemoMain(int argc, char **argv);
 
 struct HttpResponse {
   int status = 0;
