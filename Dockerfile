@@ -7,6 +7,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /src
 COPY . .
 RUN cmake -S . -B build && cmake --build build && ctest --test-dir build --output-on-failure
+# The installed package, static and shared, consumed through find_package.
+RUN sh tests/package/check.sh iya_wsfed iya_wsfed IYA_WSFED
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -15,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /src
 # Only what the build reads, so a new trust chain in demo/ does not rebuild the binaries.
 COPY CMakeLists.txt VERSION ./
+COPY cmake cmake
 COPY include include
 COPY src src
 COPY tests tests

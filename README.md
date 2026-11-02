@@ -4,7 +4,7 @@ Server-side WS-Federation 1.2 passive relying party for C and C++. One implement
 
 The library accepts SAML 2.0 bearer assertions, reads identity-provider federation metadata, writes relying-party metadata, verifies XML signatures, decrypts encrypted assertions, and remembers assertion ids so a bearer token cannot be replayed. A Shared Signals poll receiver for CAEP and RISC is included. The relying party does not start that receiver.
 
-Version 0.1.0. License: MIT. Publishing is not a package registry. `develop` and `main` are the same commit when this tree is published.
+Version 0.1.0. License: MIT. `develop` and `main` are the same commit when this tree is published.
 
 ## Call surfaces
 
@@ -66,11 +66,15 @@ The script starts the latest `main` of iya-sts in a container (memory mode, no p
 
 `idpCa` (demo default `file:generated/idp-ca.pem`, relative to `demo/`) is iya-sts's TLS listener CA trust chain. `scripts/configure_iya_sts.py` writes it on every run through `scripts/trust_chain.py`: the whole chain iya-sts publishes at `GET /tls/server-certificate` (leaf, TLS Issuing CA, Intermediate, Root), or the chain presented in the TLS handshake when that is missing. It prints the path, the anchor's subject and its SHA-256. `python3 scripts/trust_chain.py --idp <url>` does only that step.
 
+The install script never prints a generated test-user password: it writes it to `demo/generated/<user>.password` (created mode 0600) and prints only that path. No line it or the live script prints carries anything derived from a password or secret.
+
 The library loads every PEM block of `idpCa` into its OpenSSL trust store, so the path ends at the self-signed Root, and it verifies that the listener's certificate names the host in the URL: a DNS name against a DNS SAN, an IP literal (such as `127.0.0.1`) against an IP SAN. A certificate that chains to the trusted root but does not name the host is refused.
 
 The demo image build copies `demo/` after compiling, and `.dockerignore` admits only `demo/generated/idp-ca.pem` from `demo/generated`, so the image carries the chain at `/app/demo/generated/idp-ca.pem` with no bind mount. Keys, secrets and metadata stay out of the image. A build before the install script has run still succeeds; the image then has no chain. Rebuild the image after re-running the install script against a different iya-sts.
 
 ## Demo
+
+The demo web app is not part of the library: it is the `iya_wsfed_demo` target (`src/demo.cpp`), built for `wsfed-demo` and the tests and never installed.
 
 `PORT` defaults to 3000. `GET /healthz` returns `200` and the body `ok` before the identity provider is dialed. Loopback realm and reply URLs follow the running port. Other hosts stay as written. `PUBLIC_URL` or `--public-url` replaces the origin and keeps the path. The page links to `/login`, which redirects with `wa=wsignin1.0`, `wtrealm`, `wreply`, and `wctx`. The reply URL handles the POST and sign-out cleanup. `POST /logout` signs out. `GET /live-status` reports the sign-in and accepted Shared Signals events as JSON, without tokens. Demo JSON uses `file:` placeholders and omits `signals`. Do not commit `demo/generated`.
 
@@ -91,3 +95,20 @@ The generated certificate's common name defaults to `wsfed-caep-nodejs relying p
 `python scripts/configure_iya_sts.py` registers the demo with iya-sts and writes its listener CA trust chain where `idpCa` names it (see above); rebuild the demo image afterwards. The container `PORT` wins over the shell `PORT`. The script calls `wsfed-caep` on `PATH` for key generation and does not import a Python protocol package.
 
 `Dockerfile` and comment-free `docker-compose.yml` use image `wsfed-caep-c-demo`, `network_mode: host`, `ENV PORT=3000`, and a health check of `http://127.0.0.1:${PORT}/healthz`. Compose does not publish host port 3000.
+
+## Using it from CMake
+
+The build installs the library, its public headers and a CMake package. It builds static by
+default and shared with `-DBUILD_SHARED_LIBS=ON`; `-DIYA_WSFED_BUILD_TESTS=OFF -DIYA_WSFED_BUILD_PROGRAMS=OFF`
+builds the library alone (both are on only when this is the top-level project). Then:
+
+```cmake
+find_package(iya_wsfed REQUIRED)
+target_link_libraries(app PRIVATE iya::wsfed)
+```
+
+The package finds the library's own dependencies, and the target carries the include
+directory and C++17. The Docker test stage checks this: it installs the static and the shared
+library and builds the C++ smoke test against each through `find_package` (`tests/package/`).
+
+A pull request merged into `main` releases the library after the test workflow succeeds on that commit: `release.yml` tags `v<VERSION>` and makes a GitHub Release, whose source archive is what a package recipe (such as a ConanCenter one) builds from. A direct push does not release. A tag that already exists stays; the next release is a new version in `VERSION`, which the CMake project, the package and the tag all read.

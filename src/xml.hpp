@@ -85,7 +85,7 @@ inline Xml parse_xml(const std::string &text, const std::string &what) {
   xmlDocPtr doc = xmlReadMemory(text.data(), static_cast<int>(text.size()), "wsfed.xml", "UTF-8",
                                 XML_PARSE_NONET | XML_PARSE_NOERROR | XML_PARSE_NOWARNING | XML_PARSE_NOCDATA);
   if (!doc || !xmlDocGetRootElement(doc)) {
-    xmlErrorPtr err = xmlGetLastError();
+    const xmlError *err = xmlGetLastError();
     std::string detail = err && err->message ? err->message : "no document element";
     while (!detail.empty() && (detail.back() == '\n' || detail.back() == '\r')) detail.pop_back();
     if (doc) xmlFreeDoc(doc);
