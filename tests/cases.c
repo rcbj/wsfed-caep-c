@@ -13,7 +13,11 @@
 #include <openssl/sha.h>
 #include <openssl/x509.h>
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <pthread.h>
+#include <sys/select.h>
+#include <sys/socket.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -718,6 +722,212 @@ void TestOverlappingPollsHandleASetOnce(void) {
   stub_close(stub, server);
 }
 
+/* Plain http off loopback (#14). These run inside two registered tests:
+ * PlainHttpMetadataChecks() from TestReadsTheSecurityTokenServiceRole
+ * (suite.c), and PlainHttpTransmitterChecks() from
+ * TestRefusesATransmitterWithoutPollDelivery below. Each fetch (metadata, the
+ * transmitter's configuration and JWKS) is refused before a connection is
+ * opened. http://example.com names a host off this machine;
+ * http://0.0.0.0:<port> is not loopback either, but Linux delivers it to a
+ * socket on 127.0.0.1, so a listener there shows whether the library opened a
+ * connection at all. */
+typedef struct {
+  int fd;
+  int port;
+} Tripwire;
+
+static Tripwire tripwire_open(void) {
+  Tripwire t = {-1, 0};
+  t.fd = socket(AF_INET, SOCK_STREAM, 0);
+  struct sockaddr_in addr;
+  memset(&addr, 0, sizeof addr);
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  if (t.fd < 0 || bind(t.fd, (struct sockaddr *)&addr, sizeof addr) != 0 || listen(t.fd, 8) != 0) die("tripwire");
+  socklen_t len = sizeof addr;
+  getsockname(t.fd, (struct sockaddr *)&addr, &len);
+  t.port = ntohs(addr.sin_port);
+  return t;
+}
+
+/* Dies when a connection is waiting to be accepted, then closes the listener. */
+static void tripwire_close_untouched(Tripwire *t) {
+  fd_set fds;
+  FD_ZERO(&fds);
+  FD_SET(t->fd, &fds);
+  struct timeval tv = {0, 200000};
+  int waiting = select(t->fd + 1, &fds, NULL, NULL, &tv) > 0;
+  close(t->fd);
+  if (waiting) die("a connection was opened");
+}
+
+static void expect_plain_refusal(const iya_wsfed_error *err, const char *code, const char *host, const char *secret) {
+  char *want = aprintf("http://%s is refused: plain http is allowed only to a loopback host", host);
+  int ok = strcmp(err->code, code) == 0 && strncmp(err->message, want, strlen(want)) == 0 && msg_has(err->message, "use https");
+  free(want);
+  if (!ok) dief("plain http: code %s want %s: %s", err->code, code, err->message);
+  if (secret && msg_has(err->message, secret)) dief("the secret is in the message: %s", err->message);
+  if (msg_has(err->message, "/md") || msg_has(err->message, "/jwks") || msg_has(err->message, "?")) dief("path or query in %s", err->message);
+}
+
+static void expect_unsafe(const iya_wsfed_error *err, const char *code) {
+  if (strcmp(err->code, code) != 0 || !msg_has(err->message, "whitespace or a control character")) dief("unsafe URL: %s %s", err->code, err->message);
+}
+
+/* Creates a relying party whose idpMetadata is `source` (a JSON string body) and requires it to fail. */
+static void party_fails(const char *source, iya_wsfed_error *err) {
+  char *json = cfg_json(source, 1, NULL);
+  memset(err, 0, sizeof *err);
+  iya_wsfed_party *party = iya_wsfed_party_create(json, "", err);
+  free(json);
+  if (party) {
+    iya_wsfed_party_free(party);
+    dief("metadata at %s was read", source);
+  }
+}
+
+static char *read_all(const char *path) {
+  FILE *f = fopen(path, "rb");
+  if (!f) die(path);
+  fseek(f, 0, SEEK_END);
+  long n = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  char *out = malloc((size_t)n + 1);
+  if (fread(out, 1, (size_t)n, f) != (size_t)n) die("read");
+  out[n] = 0;
+  fclose(f);
+  return out;
+}
+
+static void meta_handle(const char *method, const char *target, const char *body, void *user, int *status,
+                        char **response_body) {
+  (void)method;
+  (void)target;
+  (void)body;
+  *status = 200;
+  *response_body = strdup((const char *)user);
+}
+
+static void metadata_over(const char *host) {
+  char *xml = read_all(default_meta_path());
+  int port = 0;
+  iya_http_server *server = iya_http_serve(meta_handle, xml, &port);
+  if (!server || port <= 0) die("metadata server");
+  char *url = aprintf("http://%s:%d/md", host, port);
+  char *json = cfg_json(url, 1, NULL);
+  iya_wsfed_party *party = must_party(json);
+  if (strcmp(iya_wsfed_party_idp_entity(party), IDP_ENTITY) != 0) dief("entity over %s", host);
+  iya_wsfed_party_free(party);
+  free(json);
+  free(url);
+  iya_http_server_close(server);
+  free(xml);
+}
+
+void PlainHttpMetadataChecks(void) {
+  iya_wsfed_error err;
+  party_fails("http://example.com/md?x=1", &err);
+  expect_plain_refusal(&err, "metadata", "example.com", NULL);
+  Tripwire t = tripwire_open();
+  char *url = aprintf("http://0.0.0.0:%d/md", t.port);
+  char *host = aprintf("0.0.0.0:%d", t.port);
+  party_fails(url, &err);
+  expect_plain_refusal(&err, "metadata", host, NULL);
+  free(url);
+  free(host);
+  /* Userinfo is never loopback, and never in the message. */
+  url = aprintf("http://localhost:%d@example.com/md", t.port);
+  party_fails(url, &err);
+  expect_plain_refusal(&err, "metadata", "example.com", NULL);
+  free(url);
+  url = aprintf("http://alice:s3cret-pw@localhost:%d/md", t.port);
+  host = aprintf("localhost:%d", t.port);
+  party_fails(url, &err);
+  expect_plain_refusal(&err, "metadata", host, "s3cret-pw");
+  if (msg_has(err.message, "alice")) die("the user name is in the message");
+  free(url);
+  free(host);
+  /* Whitespace or a control character anywhere (JSON escapes; the
+   * configuration trims only the ends). */
+  const char *unsafe[] = {"http://127.0.0.1:%d/m\\td", "http://127.0.0.1:%d/m\\nd", "https://127.0.0.1:%d/m d",
+                          "http://127.0.0.1:%d/m\\u007fd"};
+  for (size_t i = 0; i < sizeof unsafe / sizeof unsafe[0]; i++) {
+    url = aprintf(unsafe[i], t.port);
+    party_fails(url, &err);
+    expect_unsafe(&err, "metadata");
+    free(url);
+  }
+  tripwire_close_untouched(&t);
+  /* Plain http to loopback still works: 127.0.0.1 and localhost. */
+  metadata_over("127.0.0.1");
+  metadata_over("localhost");
+  /* https is not touched by the rule: a closed port fails as a connection
+   * failure, not as a refusal of plain http. */
+  party_fails("https://127.0.0.1:1/md", &err);
+  if (strcmp(err.code, "metadata") != 0 || msg_has(err.message, "plain http")) dief("https: %s %s", err.code, err.message);
+}
+
+static void transmitter_refused(const char *transmitter, const char *host, const char *secret) {
+  iya_wsfed_error err;
+  memset(&err, 0, sizeof err);
+  iya_wsfed_receiver *receiver = iya_wsfed_receiver_new(transmitter, end_ok, NULL, 60000, NULL, NULL, &err);
+  if (!receiver) die(err.message);
+  memset(&err, 0, sizeof err);
+  if (iya_wsfed_receiver_start(receiver, &err) == 0) dief("the receiver started at %s", transmitter);
+  if (host) expect_plain_refusal(&err, "ssf", host, secret);
+  else expect_unsafe(&err, "ssf");
+  iya_wsfed_receiver_free(receiver);
+}
+
+/* A loopback transmitter whose configuration names `user` as its jwks_uri. */
+static void jwks_naming_handle(const char *method, const char *target, const char *body, void *user, int *status,
+                               char **response_body) {
+  (void)method;
+  (void)body;
+  *status = 200;
+  if (target && strcmp(target, "/.well-known/ssf-configuration") == 0) {
+    *response_body = aprintf(
+        "{\"issuer\":\"http://127.0.0.1\",\"jwks_uri\":\"%s\",\"configuration_endpoint\":\"http://127.0.0.1:1/ssf/stream\","
+        "\"delivery_methods_supported\":[\"urn:ietf:rfc:8936\"]}",
+        (const char *)user);
+  } else {
+    *response_body = strdup("{}");
+  }
+}
+
+static void jwks_refused(const char *jwks_uri, const char *host) {
+  int port = 0;
+  iya_http_server *server = iya_http_serve(jwks_naming_handle, (void *)jwks_uri, &port);
+  if (!server || port <= 0) die("transmitter stub");
+  char *base = aprintf("http://127.0.0.1:%d", port);
+  transmitter_refused(base, host, NULL);
+  free(base);
+  iya_http_server_close(server);
+}
+
+static void PlainHttpTransmitterChecks(void) {
+  transmitter_refused("http://example.com:8080", "example.com:8080", NULL);
+  jwks_refused("http://example.com/jwks", "example.com");
+  Tripwire t = tripwire_open();
+  char *url = aprintf("http://0.0.0.0:%d", t.port);
+  char *host = aprintf("0.0.0.0:%d", t.port);
+  transmitter_refused(url, host, NULL);
+  free(url);
+  url = aprintf("http://0.0.0.0:%d/jwks", t.port);
+  jwks_refused(url, host);
+  free(url);
+  free(host);
+  url = aprintf("http://user:s3cret-pw@127.0.0.1:%d", t.port);
+  host = aprintf("127.0.0.1:%d", t.port);
+  transmitter_refused(url, host, "s3cret-pw");
+  free(url);
+  free(host);
+  url = aprintf("http://127.0.0.1:%d/m d", t.port);
+  transmitter_refused(url, NULL, NULL);
+  free(url);
+  tripwire_close_untouched(&t);
+}
+
 void TestRefusesATransmitterWithoutPollDelivery(void) {
   iya_wsfed_error err;
   memset(&err, 0, sizeof err);
@@ -727,6 +937,7 @@ void TestRefusesATransmitterWithoutPollDelivery(void) {
   int rc = iya_wsfed_receiver_start(receiver, &err);
   expect_err(rc != 0, &err, "ssf", "");
   iya_wsfed_receiver_free(receiver);
+  PlainHttpTransmitterChecks();
 }
 
 static void write_text(const char *path, const char *body) {
