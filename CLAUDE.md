@@ -34,6 +34,8 @@ C tests cover configuration, metadata, sign-in, signed and encrypted assertions,
 
 `idpCa` (demo default `file:generated/idp-ca.pem`) is iya-sts's listener CA trust chain. `scripts/configure_iya_sts.py` writes the whole chain on every run via `scripts/trust_chain.py` (`GET /tls/server-certificate`, falling back to the handshake) and prints the path, anchor subject and SHA-256. `src/http.cpp` loads every PEM block as an anchor and verifies the host name (`SSL_set1_host`, or `X509_VERIFY_PARAM_set1_ip_asc` for an IP literal, which gets no SNI). The demo stage compiles from `CMakeLists.txt`, `VERSION`, `include`, `src`, `tests`, then `COPY demo /app/demo`; `.dockerignore` excludes `demo/generated/*` except `idp-ca.pem`, so the image carries the chain and no keys, and a build without it still succeeds. Rebuild the demo image after re-running the install script against a different iya-sts.
 
+The install script never prints a generated test-user password: it writes it to `demo/generated/<user>.password` (created mode 0600) and prints only that path. No line it or the live script prints carries anything derived from a password or secret.
+
 ## Layout
 
 `include/` and `src/` are the library. `tests/` is the suite. `demo/` is the HTTP handler. `wsfed-demo` and `wsfed-caep` are the installed commands. `scripts/configure_iya_sts.py` registers the demo with iya-sts, writes the trust chain, and shells out to `wsfed-caep` on `PATH`; the container `PORT` wins over the shell `PORT`. `Dockerfile` and comment-free `docker-compose.yml` use image `wsfed-caep-c-demo`, `network_mode: host`, `ENV PORT=3000`, and a health check of `http://127.0.0.1:${PORT}/healthz`.
