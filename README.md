@@ -4,7 +4,7 @@ Server-side WS-Federation 1.2 passive relying party for C and C++. One implement
 
 The library accepts SAML 2.0 bearer assertions, reads identity-provider federation metadata, writes relying-party metadata, verifies XML signatures, decrypts encrypted assertions, and remembers assertion ids so a bearer token cannot be replayed. A Shared Signals poll receiver for CAEP and RISC is included. The relying party does not start that receiver.
 
-Version 0.1.0. License: MIT. `develop` and `main` are the same commit when this tree is published.
+Version 0.1.1. License: MIT. `develop` and `main` are the same commit when this tree is published.
 
 ## Call surfaces
 
