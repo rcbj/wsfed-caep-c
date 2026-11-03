@@ -4,7 +4,7 @@ Server-side WS-Federation 1.2 passive relying party for C and C++. One implement
 
 The library accepts SAML 2.0 bearer assertions, reads identity-provider federation metadata, writes relying-party metadata, verifies XML signatures, decrypts encrypted assertions, and remembers assertion ids so a bearer token cannot be replayed. A Shared Signals poll receiver for CAEP and RISC is included. The relying party does not start that receiver.
 
-Version 0.1.1. License: MIT. `develop` and `main` are the same commit when this tree is published.
+Version 0.1.2. License: MIT. `develop` and `main` are the same commit when this tree is published.
 
 ## Call surfaces
 
@@ -114,3 +114,31 @@ directory and C++17. The Docker test stage checks this: it installs the static a
 library and builds the C++ smoke test against each through `find_package` (`tests/package/`).
 
 A pull request merged into `main` releases the library after the test workflow succeeds on that commit: `release.yml` tags `v<VERSION>` and makes a GitHub Release, whose source archive is what a package recipe (such as a ConanCenter one) builds from. A direct push does not release. A tag that already exists stays; the next release is a new version in `VERSION`, which the CMake project, the package and the tag all read.
+
+## Using it from Conan
+
+`conanfile.py` at the root of this repository builds the library from the checkout and puts
+the package `iya-wsfed-caep` in your local Conan cache (Conan 2, a C++17 profile). Clone a release
+tag and create it:
+
+```sh
+git clone --branch v0.1.2 https://github.com/rcbj/wsfed-caep-c.git
+conan create wsfed-caep-c --version=0.1.2 --build=missing
+```
+
+`--version` may be left out, since the recipe reads `VERSION`; given, it must match.
+`-o "iya-wsfed-caep/*:shared=True"` builds the shared library; the recipe refuses Windows, which
+the library does not support yet. A project then requires it like any other package:
+
+```
+[requires]
+iya-wsfed-caep/0.1.2
+
+[generators]
+CMakeDeps
+CMakeToolchain
+```
+
+and finds it with `find_package(iya_wsfed REQUIRED)` as above. The package is not on
+ConanCenter: its maintainers asked for a longer history before including it. `conan/` keeps
+the ConanCenter-layout recipe, which builds from the release archive instead of a checkout.
